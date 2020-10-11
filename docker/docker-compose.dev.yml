@@ -1,0 +1,40 @@
+version: '3'
+
+services:
+  worker: &anchor_worker
+    build: ..
+    environment:
+      - FLASK_ENV=development
+      - FLASK_CONFIG=${FLASK_CONFIG:-default}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ../src:/code
+    command: >
+      bash -c "celery -A app.worker.celery_factory:celery_app worker --loglevel=INFO --concurrency=2"
+    depends_on:
+      - redis
+
+  web:
+    <<: *anchor_worker
+    command: >
+      bash -c "flask run -h 0.0.0.0"
+    ports:
+      - "5000:5000"
+
+  redis:
+    image: redis:6-alpine
+    command: ['redis-server', "--save ''"]
+    ports:
+      - 6379:6379
+
+  monitor:
+    image: mher/flower
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - FLOWER_PORT=8888
+    ports:
+      - 8888:8888
+      - 5555:5555
+    depends_on:
+      - redis
