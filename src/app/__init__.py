@@ -1,13 +1,11 @@
 import logging
-import traceback
+from logging import Formatter
 from celery import Celery
-from flask import (
-    Flask,
-    jsonify, make_response, request,
-)
+from flask import Flask
+from flask.logging import default_handler
 
 from config import config_modes, BaseConfig
-from extensions import db, mi
+from extensions import db, mi, jwt
 
 
 # this instance is to be used only to decorate functions as tasks
@@ -29,36 +27,23 @@ def create_app(config_name):
     return flask_app
 
 
-def register_endpoints(app):
-
+def register_endpoints(flask_app):
+    from app.api.base.views import unhandled_exception, internal_server_error, page_not_found
     from app.api.hello import hello_blueprint
+    from app.api.users import users_blueprint
 
-    app.register_blueprint(hello_blueprint)
-
-    @app.errorhandler(Exception)
-    def unhandled_exception(e):
-        traceback.print_exc()
-        return jsonify(
-            data={'success': False},
-            errors={'message': str(e)}
-        ), 500
-
-    @app.errorhandler(404)
-    def page_not_found(error):
-        app.logger.error('Page not found: %s', request.path)
-        return make_response(jsonify({
-            'message': f'{str(error)}'
-        })), 404
-
-    @app.errorhandler(500)
-    def internal_server_error(error):
-        app.logger.error('Server Error: %s', error)
-        return make_response(jsonify({
-            'message': f'{str(error)}'
-        })), 500
+    flask_app.register_blueprint(hello_blueprint)
+    flask_app.register_blueprint(users_blueprint)
+    flask_app.register_error_handler(404, page_not_found)
+    flask_app.register_error_handler(500, internal_server_error)
+    flask_app.register_error_handler(Exception, unhandled_exception)
 
 
 def setup_logger(app):
+    formatter = Formatter(
+        '[%(asctime)s] %(levelname)s in %(module)s [%(pathname)s : %(lineno)d] :::: %(message)s'
+    )
+    default_handler.setFormatter(formatter)
     if __name__ != "__main__":
         gunicorn_logger = logging.getLogger("gunicorn.error")
         if gunicorn_logger.level:
@@ -71,3 +56,9 @@ def setup_logger(app):
 def setup_extensions(app):
     db.init_app(app)
     mi.init_app(app, db)
+    jwt.init_app(app)
+
+
+# TODO Authorization
+# TODO API to alter ClientToken revoke status
+# TODO API to create new ClientToken for existing ClientUser
