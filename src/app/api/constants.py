@@ -1,0 +1,2 @@
+TOKEN_TYPE_API = "api"
+TOKEN_TYPE_REGULAR = "regular"

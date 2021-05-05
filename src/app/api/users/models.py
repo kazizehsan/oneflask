@@ -1,12 +1,12 @@
 import uuid
+
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import UUID
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask_jwt_extended import create_access_token, get_jti
 
-from extensions import db
 from app.api.base.model_mixins import TimeAudit
-from .signals import admin_user_post_save, client_user_post_save
+from extensions import db
+from .signals import user_post_save
 
 
 class UserBase(db.Model):
@@ -25,42 +25,17 @@ class UserBase(db.Model):
         return check_password_hash(self.password, password)
 
 
-class AdminUser(TimeAudit, UserBase):
-    __tablename__ = 'admin_users'
+class User(TimeAudit, UserBase):
+    __tablename__ = 'users'
 
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     first_name = db.Column(db.String(30), nullable=True)
     last_name = db.Column(db.String(30), nullable=True)
     designation = db.Column(db.String(50), nullable=True)
-
-    def save(self, **kw):
-        created = False if self.id else True
-        db.session.add(self)
-        db.session.commit()
-        if 'send_signal' in kw and kw['send_signal']:
-            admin_user_post_save.send(self, created=created)
-        return self
-
-    def update(self, data_update, **kw):
-        db.session.query(AdminUser).filter(AdminUser.id == self.id).update(data_update, synchronize_session=False)
-        db.session.commit()
-        if 'send_signal' in kw and kw['send_signal']:
-            admin_user_post_save.send(self, created=False)
-        return self
-
-    def delete(self, **kw):
-        db.session.delete(self)
-        db.session.commit()
-        return True
-
-
-class ClientUser(TimeAudit, UserBase):
-    __tablename__ = 'client_users'
-
-    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization = db.Column(db.String(50), nullable=True)
-    client_token = db.relationship(
-        "ClientToken", backref="client_user",
+    is_admin = db.Column(db.Boolean, nullable=False, server_default=text('FALSE'))
+    api_token = db.relationship(
+        "APIToken", backref="user",
         cascade="all, delete", uselist=False
     )
 
@@ -69,25 +44,14 @@ class ClientUser(TimeAudit, UserBase):
         db.session.add(self)
         db.session.commit()
         if 'send_signal' in kw and kw['send_signal']:
-            client_user_post_save.send(self, created=created)
-            jwt_user_claims = {
-                'type': 'api',
-                'user': 'client'
-            }
-            api_token = create_access_token(self.email, expires_delta=False, user_claims=jwt_user_claims)
-            client_token = ClientToken()
-            client_token.revoked = False
-            client_token.client_user = self
-            client_token.jti = get_jti(api_token)
-            client_token.save()
-            return self, api_token
+            user_post_save.send(self, created=created)
         return self
 
     def update(self, data_update, **kw):
-        db.session.query(ClientUser).filter(ClientUser.id == self.id).update(data_update, synchronize_session=False)
+        db.session.query(User).filter(User.id == self.id).update(data_update, synchronize_session=False)
         db.session.commit()
         if 'send_signal' in kw and kw['send_signal']:
-            client_user_post_save.send(self, created=False)
+            user_post_save.send(self, created=False)
         return self
 
     def delete(self, **kw):
@@ -96,11 +60,11 @@ class ClientUser(TimeAudit, UserBase):
         return True
 
 
-class ClientToken(TimeAudit, db.Model):
-    __tablename__ = 'client_tokens'
+class APIToken(TimeAudit, db.Model):
+    __tablename__ = 'api_tokens'
 
     id = db.Column(db.Integer, primary_key=True)
-    client_user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('client_users.id', ondelete="CASCADE"))
+    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id', ondelete="CASCADE"))
     jti = db.Column(db.String(36), nullable=False)
     revoked = db.Column(db.Boolean, nullable=False)
 
@@ -111,7 +75,7 @@ class ClientToken(TimeAudit, db.Model):
         return self
 
     def update(self, data_update, **kw):
-        db.session.query(ClientToken).filter(ClientToken.id == self.id).update(data_update, synchronize_session=False)
+        db.session.query(APIToken).filter(APIToken.id == self.id).update(data_update, synchronize_session=False)
         db.session.commit()
         return self
 

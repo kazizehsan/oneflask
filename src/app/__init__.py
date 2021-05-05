@@ -31,9 +31,11 @@ def register_endpoints(flask_app):
     from app.api.base.views import unhandled_exception, internal_server_error, page_not_found
     from app.api.hello import hello_blueprint
     from app.api.users import users_blueprint
+    from app.api.auth import auth_blueprint
 
     flask_app.register_blueprint(hello_blueprint)
     flask_app.register_blueprint(users_blueprint)
+    flask_app.register_blueprint(auth_blueprint)
     flask_app.register_error_handler(404, page_not_found)
     flask_app.register_error_handler(500, internal_server_error)
     flask_app.register_error_handler(Exception, unhandled_exception)
@@ -59,6 +61,5 @@ def setup_extensions(app):
     jwt.init_app(app)
 
 
-# TODO Authorization
-# TODO API to alter ClientToken revoke status
-# TODO API to create new ClientToken for existing ClientUser
+# TODO API to alter APIToken revoke status
+# TODO API to create new APIToken for existing ClientUser
