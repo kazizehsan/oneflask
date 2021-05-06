@@ -19,7 +19,9 @@ services:
   web:
     <<: *anchor_worker
     command: >
-      bash -c "flask run -h 0.0.0.0"
+      bash -c "urlwait &&
+               flask db upgrade &&
+               flask run -h 0.0.0.0"
     ports:
       - "5000:5000"
 

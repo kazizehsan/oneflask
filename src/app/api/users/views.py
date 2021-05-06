@@ -9,6 +9,20 @@ from app.api import constants
 from ..decorators import admin_required
 
 
+def _create_api_token(user):
+    jwt_user_claims = {
+        'type': constants.TOKEN_TYPE_API,
+        'is_admin': user.is_admin
+    }
+    access_token = create_access_token(user.email, expires_delta=False, user_claims=jwt_user_claims)
+    api_token = APIToken()
+    api_token.revoked = False
+    api_token.user = user
+    api_token.jti = get_jti(access_token)
+    api_token.save()
+    return access_token
+
+
 def create_user_by_self():
     if request.method == 'POST':
         json_data = request.get_json()
@@ -31,16 +45,7 @@ def create_user_by_self():
         user.hash_password(user.password)
         user = user.save(send_signal=True)
 
-        jwt_user_claims = {
-            'type': constants.TOKEN_TYPE_API,
-            'is_admin': user.is_admin
-        }
-        access_token = create_access_token(user.email, expires_delta=False, user_claims=jwt_user_claims)
-        api_token = APIToken()
-        api_token.revoked = False
-        api_token.user = user
-        api_token.jti = get_jti(access_token)
-        api_token.save()
+        access_token = _create_api_token(user)
 
         return jsonify({
             'data': UserResponseSchema().dump(user),
@@ -70,16 +75,7 @@ def create_user_by_admin():
         user = user.save(send_signal=True)
 
         if not user.is_admin:
-            jwt_user_claims = {
-                'type': constants.TOKEN_TYPE_API,
-                'is_admin': user.is_admin
-            }
-            access_token = create_access_token(user.email, expires_delta=False, user_claims=jwt_user_claims)
-            api_token = APIToken()
-            api_token.revoked = False
-            api_token.user = user
-            api_token.jti = get_jti(access_token)
-            api_token.save()
+            access_token = _create_api_token(user)
             print('Sending access_token to: ' + user.email)
             print(access_token)
 
@@ -207,3 +203,40 @@ def delete_user(id):
 
         requested_user.delete()
         return jsonify_no_content()
+
+
+@admin_required
+def alter_api_token_revoke_status(id):
+    if request.method == 'PUT':
+        requested_user = User.query.filter_by(id=id).first()
+        if requested_user is None:
+            abort(404, description="User not found")
+        requested_user.api_token.revoked = not requested_user.api_token.revoked
+
+        requested_user.update({}, send_signal=True)
+
+        updated_user = User.query.filter_by(id=id).first()
+        return jsonify({
+            'data': UserResponseSchema().dump(updated_user)
+        })
+
+
+@admin_required
+def create_api_token(id):
+    if request.method == 'POST':
+        requested_user = User.query.filter_by(id=id).first()
+        if requested_user is None:
+            abort(404, description="User not found")
+
+        old_api_token = requested_user.api_token
+        access_token = _create_api_token(requested_user)
+        print('Sending access_token to: ' + requested_user.email)
+        print(access_token)
+
+        if old_api_token:
+            old_api_token.delete()
+
+        updated_user = User.query.filter_by(id=id).first()
+        return jsonify({
+            'data': UserResponseSchema().dump(updated_user)
+        })

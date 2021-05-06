@@ -1,9 +1,12 @@
 import logging
 from logging import Formatter
+
+import click
 from celery import Celery
 from flask import Flask
 from flask.logging import default_handler
 
+from app.api.users import User
 from config import config_modes, BaseConfig
 from extensions import db, mi, jwt
 
@@ -23,6 +26,7 @@ def create_app(config_name):
     setup_logger(flask_app)
     register_endpoints(flask_app)
     setup_extensions(flask_app)
+    setup_commands(flask_app)
 
     return flask_app
 
@@ -61,5 +65,27 @@ def setup_extensions(app):
     jwt.init_app(app)
 
 
-# TODO API to alter APIToken revoke status
-# TODO API to create new APIToken for existing ClientUser
+def setup_commands(app):
+
+    @app.cli.command('create_admin', help='Create an admin user')
+    @click.argument('email')
+    @click.argument('password')
+    def create_admin(email, password):
+        admin_user = User.query.filter_by(email=email).first()
+
+        if admin_user:
+            click.echo("user with this email already exists")
+            return
+
+        admin_user_info = {
+            'email': email,
+            'password': password,
+            'is_active': True,
+            'is_admin': True
+        }
+        admin_user = User(**admin_user_info)
+        admin_user.hash_password(admin_user.password)
+        admin_user.save(send_signal=True)
+
+        click.echo("user created")
+        return
